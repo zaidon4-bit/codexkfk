@@ -2,6 +2,15 @@
 
 An independent web-based coding assistant starter. It includes a React/Vite UI, Express API, tool-calling agent, per-user workspaces, cookie-based accounts, admin-managed per-user API configurations, model-specific system prompts, and token usage metering.
 
+## Reasoning verification and command safety
+
+- Thinking/output parameter names and value vocabularies are provider-specific. For accounts using multiple providers, configure the mapping in **Admin → System prompt per model** rather than applying one global `.env` field to all models.
+- Unknown providers do not get a guessed output-token parameter. Set `AI_MAX_OUTPUT_FIELD` only when it is correct for every route that uses that environment variable.
+- Diagnostics distinguish `confirmed_by_usage`, `not_verified` (the provider reported zero reasoning tokens), `not_verifiable` (the provider omitted a usable count), and `not_configured`. A missing/zero count does not prove the provider ignored the parameter; only the provider can guarantee that behavior.
+- `build`, `test`, `lint`, and `typecheck` first require a matching non-empty script in the user's workspace `package.json`. Missing scripts are reported as `NOT CONFIGURED` without launching npm.
+- The six command aliases remain `build`, `test`, `lint`, `typecheck`, `git-status`, and `git-diff-check`. Direct command execution requires an explicit confirmation and is still disabled by default. **Do not set `ENABLE_WORKSPACE_COMMANDS=true` on the public Render app**, because this project does not ship a true OS/container sandbox and project-defined npm scripts can execute arbitrary code.
+
+
 ## What is implemented
 
 - Email/password login with scrypt password hashes and opaque HTTP-only sessions stored by hash.
@@ -12,8 +21,11 @@ An independent web-based coding assistant starter. It includes a React/Vite UI, 
 - The model-specific system prompt is injected server-side into both chat and agent calls.
 - Each user has a distinct workspace and data directory for task/session/file history and pending tool approvals.
 - Usage token metering and monthly token quota checks.
-- Preserved Low / Medium / High / X High thinking choices, separately from Standard / Quick / Long / Deep response modes.
-- Read/search workspace tools, approval-gated file writes/deletes/task creation/commands, sessions, tasks, rules and skills.
+- Low / Medium / High / X High reasoning-effort controls, separate from Standard / Quick / Long / Deep response modes. The selected value is sent to the provider only when a supported/configured field mapping exists.
+- Automatic request mapping for ODiRouter Gemini 2.5 Pro: `reasoning_effort` for Low / Medium / High; X High maps to the documented High ceiling. Deep mode requests a 10,000 thinking budget; Long mode requests an output-token maximum of 10,000 (not a minimum).
+- Read/search workspace tools, a safe no-execution JavaScript/JSON syntax checker, approval-gated file writes/deletes/task creation/commands, sessions, tasks, rules and skills.
+- Chat activity trace showing which tools were actually called and their result status.
+- Settings → Tools & reasoning diagnostics: safe local workspace tests plus optional live provider tests for chat, function/tool calling, Low / Medium / High / X High, Deep and Long mode.
 
 ## Install locally (Termux or desktop)
 
@@ -56,13 +68,19 @@ Open **Admin console → System prompts**. Save a prompt for the exact model ID,
 
 A system prompt cannot be guaranteed to be followed 100% of the time by a probabilistic model. This implementation gives the administrator prompt system-level placement, adds application guardrails, and independently enforces file/command permissions on the server. Sensitive actions should never rely on prompt text alone.
 
-## Thinking levels
+## Reasoning mode and diagnostics
 
-The UI selections Low / Medium / High / X High remain independent from response modes. The actual reasoning field is only added when `AI_THINKING_FIELD` is configured with a field supported by the specific API gateway/model. These labels do not guarantee a provider actually applies that reasoning level; confirm using provider documentation and live request/response tests. The Long response option requests 10,000 output tokens; the provider may cap or reject it.
+The UI exposes Low / Medium / High / X High separately from Standard / Quick / Long / Deep response modes. For ODiRouter Gemini 2.5 Pro, the app automatically sends `reasoning_effort`; X High maps to High because High is that model's documented ceiling. Deep mode requests a 10,000-token thinking budget. Other routes require a provider-supported mapping in the model prompt editor or environment variables. These settings describe the request, not a guarantee that a gateway honored it.
+
+Go to **Settings & account → Tools & reasoning diagnostics → Run full diagnostics** to test workspace list/read/search/write/delete/task tools and, when a provider is assigned, run live API tests for basic chat, forced function calling, each thinking level, Deep mode, and Long mode. Live tests can consume API quota. Results distinguish failed calls from parameters that were not configured, and show request/usage details where the gateway returns them.
+
+The current agent implements these eight tools: `list_files`, `read_file`, `search_files`, `check_code`, `write_file`, `delete_file`, `create_task`, and `run_command`. `check_code` validates native JavaScript syntax and JSON data without executing the source; it does not parse JSX/TypeScript. Write/delete/task/command actions require explicit user approval. `run_command` supports only allowlisted aliases (`build`, `test`, `lint`, `typecheck`, `git-status`, `git-diff-check`) and remains disabled by default; do not enable it on a public deployment until an OS/container sandbox is in place. Web search, MCP server management, LSP diagnostics, parallel subagents, Git worktrees, and plugin lifecycle are not implemented in this build. Diagnostics list those as not implemented rather than pretending they passed.
+
+Long mode requests a maximum of 10,000 output tokens, not a minimum; the provider may cap or reject this parameter. Reasoning token counts are displayed only when returned by the API. A successful HTTP response cannot prove that a gateway did not silently ignore a parameter.
 
 ## Deployment notes
 
-- Set Render build command to `npm install && npm run build` and start command to `npm start`.
+- Set Render build command to `npm install --include=dev && npm run build` and start command to `npm start`.
 - Set `NODE_ENV=production`, admin bootstrap variables, and `APP_ENCRYPTION_KEY` as Render environment variables. After the first successful boot, keep the bootstrap credentials secure; rotate the admin password using an appropriate account-management workflow before public production.
 - Attach a persistent disk at `/var/data` and set `APP_STORAGE_DIR=/var/data`. SQLite and each user workspace are stored below that one mounted directory (`/var/data/data` and `/var/data/workspace`). Without persistent storage, accounts, usage, API configuration, sessions, and workspaces may be lost on restart/redeploy.
 - Do not enable `ENABLE_WORKSPACE_COMMANDS` on a public deployment until commands run inside a proper isolated sandbox with resource limits. Workspace separation alone is not an OS/container sandbox.
@@ -70,4 +88,4 @@ The UI selections Low / Medium / High / X High remain independent from response 
 
 ## Checks
 
-`npm run check` checks server JavaScript syntax. `npm run build` checks the frontend build after dependencies are installed.
+Run `npm run verify` for server syntax checks and offline unit tests for provider parameter mapping. Run `npm run build` after dependencies are installed to test the Vite production build. The offline tests do not contact ODiRouter; live provider verification must be run from the deployed Settings diagnostics page with an API assigned.

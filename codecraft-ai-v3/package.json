@@ -1,6 +1,6 @@
 {
   "name": "codecraft-ai",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,9 @@
     "client:dev": "vite --host 0.0.0.0",
     "build": "vite build",
     "start": "node server/index.js",
-    "check": "node --check server/index.js"
+    "check": "node --check server/index.js",
+    "test": "node --test tests/*.test.js",
+    "verify": "node --check server/index.js && node --check server/provider-settings.js && node --check server/safe-code-check.js && npm test"
   },
   "dependencies": {
     "dotenv": "^16.4.7",
